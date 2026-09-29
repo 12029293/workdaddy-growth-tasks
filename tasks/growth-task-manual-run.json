@@ -191,9 +191,5 @@
     }
   ],
   "onSuccess": [],
-  "onFailure": [],
-  "schedule": {
-    "type": "manual"
-  },
-  "updatedAt": 1790620414489
+  "onFailure": []
 }
