@@ -1,0 +1,199 @@
+{
+  "schemaVersion": 3,
+  "id": "growth-task-manual-run-v2",
+  "name": "成长任务一键执行",
+  "description": "手动触发：遍历全部账号，为每个账号接受未完成的成长任务，并领取已完成任务的奖励（领奖走 web 域，幂等可重复运行）。行为事件类任务无法在本任务内补足进度，执行完成后可用「新账号成长任务自动检查」复核。任务不保存任何凭据。",
+  "enabled": true,
+  "concurrency": {
+    "policy": "skip"
+  },
+  "trigger": {
+    "type": "manual",
+    "oncePerNavigation": true
+  },
+  "variables": {},
+  "steps": [
+    {
+      "op": "notify.toast",
+      "level": "loading",
+      "message": "正在执行成长任务，请稍候…",
+      "id": "growth-run"
+    },
+    {
+      "op": "account.forEach",
+      "accounts": "all",
+      "steps": [
+        {
+          "op": "logic.delay",
+          "ms": 1500
+        },
+        {
+          "op": "logic.catch",
+          "onError": [
+            {
+              "op": "log.write",
+              "message": "账号 {account} 任务执行异常：{err}",
+              "params": {
+                "account": "{{account.uid}}",
+                "err": "{{vars.error.message}}"
+              }
+            }
+          ],
+          "steps": [
+            {
+              "op": "vars.set",
+              "key": "accepted",
+              "value": 0
+            },
+            {
+              "op": "vars.set",
+              "key": "claimed",
+              "value": 0
+            },
+            {
+              "op": "http.requestAsAccount",
+              "method": "GET",
+              "url": "https://www.workbuddy.cn/activity/growth/tasks",
+              "headers": {
+                "x-client-platform": "web"
+              },
+              "timeoutMs": 15000,
+              "saveAs": "tasksResp"
+            },
+            {
+              "op": "logic.if",
+              "condition": {
+                "left": "{{tasksResp.json.data.tasks}}",
+                "operator": "truthy"
+              },
+              "then": [
+                {
+                  "op": "logic.forEach",
+                  "items": "{{tasksResp.json.data.tasks}}",
+                  "steps": [
+                    {
+                      "op": "logic.switch",
+                      "value": "{{vars.item.progress}}",
+                      "cases": {
+                        "100": [
+                          {
+                            "op": "logic.catch",
+                            "steps": [
+                              {
+                                "op": "http.requestAsAccount",
+                                "method": "POST",
+                                "url": "https://www.workbuddy.cn/activity/growth/tasks/{{vars.item.code}}/claim",
+                                "headers": {
+                                  "x-client-platform": "web"
+                                },
+                                "timeoutMs": 15000,
+                                "saveAs": "claimResp"
+                              },
+                              {
+                                "op": "logic.if",
+                                "condition": {
+                                  "left": "{{claimResp.ok}}",
+                                  "operator": "truthy"
+                                },
+                                "then": [
+                                  {
+                                    "op": "value.number",
+                                    "operator": "add",
+                                    "values": [
+                                      "{{vars.claimed}}",
+                                      1
+                                    ],
+                                    "saveAs": "claimed"
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      "default": [
+                        {
+                          "op": "logic.catch",
+                          "steps": [
+                            {
+                              "op": "http.requestAsAccount",
+                              "method": "POST",
+                              "url": "https://www.workbuddy.cn/activity/growth/tasks/accept",
+                              "headers": {
+                                "x-client-platform": "web"
+                              },
+                              "body": {
+                                "task_codes": [
+                                  "{{vars.item.code}}"
+                                ]
+                              },
+                              "timeoutMs": 15000,
+                              "saveAs": "acceptResp"
+                            },
+                            {
+                              "op": "logic.if",
+                              "condition": {
+                                "left": "{{acceptResp.ok}}",
+                                "operator": "truthy"
+                              },
+                              "then": [
+                                {
+                                  "op": "value.number",
+                                  "operator": "add",
+                                  "values": [
+                                    "{{vars.accepted}}",
+                                    1
+                                  ],
+                                  "saveAs": "accepted"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "log.write",
+                  "message": "账号 {account}：接受 {accepted} 个任务，领取 {claimed} 个奖励",
+                  "params": {
+                    "account": "{{account.uid}}",
+                    "accepted": "{{vars.accepted}}",
+                    "claimed": "{{vars.claimed}}"
+                  }
+                }
+              ],
+              "else": [
+                {
+                  "op": "log.write",
+                  "message": "账号 {account} 未获取到任务列表（HTTP {status}），跳过",
+                  "params": {
+                    "account": "{{account.uid}}",
+                    "status": "{{tasksResp.status}}"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "op": "notify.dismiss",
+      "id": "growth-run"
+    },
+    {
+      "op": "notify.toast",
+      "level": "success",
+      "message": "成长任务执行完成：各账号接受与领取结果见运行日志。行为事件类任务需正常使用后再次运行本任务领取。",
+      "duration": 10000
+    }
+  ],
+  "onSuccess": [],
+  "onFailure": [],
+  "schedule": {
+    "type": "manual"
+  },
+  "updatedAt": 1790620414489
+}

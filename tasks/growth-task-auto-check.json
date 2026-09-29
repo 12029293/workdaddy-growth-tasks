@@ -1,0 +1,162 @@
+{
+  "schemaVersion": 3,
+  "id": "growth-task-auto-check",
+  "name": "新账号成长任务自动检查",
+  "description": "添加新账号或切换账号后自动检查一次成长任务：读取任务列表，统计未完成数量并弹窗提示。是否执行由用户手动决定（可配合手动任务「成长任务一键执行」）。任务不保存任何凭据。",
+  "enabled": true,
+  "concurrency": {
+    "policy": "skip"
+  },
+  "trigger": {
+    "type": "accountSwitched",
+    "oncePerNavigation": true
+  },
+  "variables": {},
+  "steps": [
+    {
+      "op": "logic.delay",
+      "ms": 2500
+    },
+    {
+      "op": "logic.catch",
+      "onError": [
+        {
+          "op": "notify.toast",
+          "level": "error",
+          "message": "成长任务检查失败：{{vars.error.message}}",
+          "duration": 8000
+        }
+      ],
+      "steps": [
+        {
+          "op": "http.requestAsAccount",
+          "method": "GET",
+          "url": "https://www.workbuddy.cn/activity/growth/tasks",
+          "headers": {
+            "x-client-platform": "web"
+          },
+          "timeoutMs": 15000,
+          "saveAs": "tasksResp"
+        },
+        {
+          "op": "logic.if",
+          "condition": {
+            "left": "{{tasksResp.ok}}",
+            "operator": "truthy"
+          },
+          "then": [
+            {
+              "op": "vars.set",
+              "key": "pendingCount",
+              "value": 0
+            },
+            {
+              "op": "logic.if",
+              "condition": {
+                "left": "{{tasksResp.json.data.tasks}}",
+                "operator": "falsy"
+              },
+              "then": [
+                {
+                  "op": "notify.toast",
+                  "level": "info",
+                  "message": "成长任务列表为空或返回结构有变化，请手动打开任务中心确认。",
+                  "duration": 8000
+                }
+              ],
+              "else": [
+                {
+                  "op": "logic.forEach",
+                  "items": "{{tasksResp.json.data.tasks}}",
+                  "steps": [
+                    {
+                      "op": "logic.if",
+                      "condition": {
+                        "left": "{{vars.item.status}}",
+                        "operator": "equals",
+                        "right": "completed"
+                      },
+                      "then": [],
+                      "else": [
+                        {
+                          "op": "logic.switch",
+                          "value": "{{vars.item.progress}}",
+                          "cases": {
+                            "100": []
+                          },
+                          "default": [
+                            {
+                              "op": "value.number",
+                              "operator": "add",
+                              "values": [
+                                "{{vars.pendingCount}}",
+                                1
+                              ],
+                              "saveAs": "pendingCount"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "state.set",
+                  "scope": "account",
+                  "key": "growthPendingCount",
+                  "value": "{{vars.pendingCount}}"
+                },
+                {
+                  "op": "logic.if",
+                  "condition": {
+                    "left": "{{vars.pendingCount}}",
+                    "operator": "gt",
+                    "right": 0
+                  },
+                  "then": [
+                    {
+                      "op": "notify.toast",
+                      "level": "warning",
+                      "message": "当前账号有 {{vars.pendingCount}} 个成长任务未完成。是否执行由你决定：可在自动化列表手动运行「成长任务一键执行」，或自行前往任务中心处理。",
+                      "duration": 12000
+                    },
+                    {
+                      "op": "log.write",
+                      "message": "账号 {account} 检查到 {count} 个未完成成长任务",
+                      "params": {
+                        "account": "{{account.uid}}",
+                        "count": "{{vars.pendingCount}}"
+                      }
+                    }
+                  ],
+                  "else": [
+                    {
+                      "op": "notify.toast",
+                      "level": "success",
+                      "message": "当前账号成长任务已全部完成。",
+                      "duration": 6000
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "else": [
+            {
+              "op": "notify.toast",
+              "level": "warning",
+              "message": "成长任务列表请求失败（HTTP {{tasksResp.status}}），请稍后手动检查任务中心。",
+              "duration": 8000
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "onSuccess": [],
+  "onFailure": [],
+  "schedule": {
+    "type": "manual"
+  },
+  "updatedAt": 1790620272186
+}
